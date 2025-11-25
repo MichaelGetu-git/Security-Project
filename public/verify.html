@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verify Email</title>
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body>
+    <div class="card">
+      <h2>Email Verification</h2>
+      <p id="status">Verifying...</p>
+      <a href="/">Return to app</a>
+    </div>
+    <script>
+      (async () => {
+        const params = new URLSearchParams(window.location.search);
+        const token = params.get('token');
+        if (!token) {
+          document.getElementById('status').textContent = 'Missing verification token.';
+          return;
+        }
+        try {
+          const res = await fetch(`/api/auth/verify?token=${token}`);
+          const data = await res.json();
+          if (res.ok) {
+            document.getElementById('status').textContent = data.message || 'Verified!';
+          } else {
+            document.getElementById('status').textContent = data.error || 'Verification failed.';
+          }
+        } catch (error) {
+          document.getElementById('status').textContent = 'Unable to verify.';
+        }
+      })();
+    </script>
+  </body>
+</html>
+

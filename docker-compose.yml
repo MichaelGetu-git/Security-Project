@@ -1,0 +1,80 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: security_db
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: securepass123
+      POSTGRES_DB: security_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    networks:
+      - security_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d security_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  app:
+    build: .
+    container_name: security_app
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: security_db
+      DB_USER: admin
+      DB_PASSWORD: securepass123
+      JWT_SECRET: your-super-secret-jwt-key-change-this
+      REFRESH_TOKEN_SECRET: your-refresh-secret
+      EMAILJS_SERVICE_ID: service_rltt2o9
+      EMAILJS_TEMPLATE_ID: template_bj1va2w
+      EMAILJS_PUBLIC_KEY: GsEMmAKjKPLWQ91Eu
+      ADMIN_ACCESS_CODE: super-secret-admin-code
+      APP_URL: http://localhost
+      RECAPTCHA_SITE_KEY:
+      RECAPTCHA_SECRET_KEY:
+      LOG_LEVEL: info
+      BACKUP_SCHEDULE: "0 2 * * *"
+      BACKUP_RETENTION_DAYS: 7
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - security_network
+    restart: unless-stopped
+    volumes:
+      - ./logs:/app/logs
+      - ./backups:/app/backups
+      - ./database:/app/database
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: security_client
+    ports:
+      - "80:80"
+    depends_on:
+      - app
+    networks:
+      - security_network
+    restart: unless-stopped
+
+networks:
+  security_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+

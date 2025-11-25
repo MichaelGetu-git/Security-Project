@@ -1,0 +1,12 @@
+node_modules
+npm-debug.log
+.env
+.git
+.gitignore
+*.md
+logs/*
+backups/*
+dist
+src/**/*.js
+src/**/*.js.map
+
