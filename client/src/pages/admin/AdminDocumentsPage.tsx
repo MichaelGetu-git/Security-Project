@@ -79,11 +79,9 @@ export const AdminDocumentsPage = () => {
         : { userId: payload.userId!, permission: payload.permission };
       return grantDocumentAccess(payload.documentId, apiPayload);
     },
-    onSuccess: (data, variables) => {
+    onSuccess: () => {
       documentsQuery.refetch();
       accessRequestsQuery.refetch();
-      const selectedUser = usersQuery.data?.find(u => u.email === variables.email || u.id === variables.userId);
-      setSuccessMessage(`Successfully granted ${variables.permission} access to "${selectedDoc?.name}" for ${selectedUser?.username || 'user'}. The user may need to refresh their documents page to see the changes.`);
     },
   });
 

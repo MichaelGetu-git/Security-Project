@@ -2,43 +2,9 @@ import { Box, Button, Card, CardContent, Chip, Stack, Typography } from '@mui/ma
 import { DataGrid } from '@mui/x-data-grid';
 import type { GridColDef, GridRenderCellParams } from '@mui/x-data-grid';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { fetchBackups, triggerBackup, type BackupEntry } from '../../api/backups';
+import { fetchBackups, triggerBackup, downloadBackup, type BackupEntry } from '../../api/backups';
 
 type BackupRow = BackupEntry & { id: number };
-
-const columns: GridColDef<BackupRow>[] = [
-  {
-    field: 'modified',
-    headerName: 'Date',
-    flex: 1,
-    renderCell: (params: GridRenderCellParams<BackupRow>) => new Date(params.row.modified).toLocaleString(),
-  },
-  {
-    field: 'size',
-    headerName: 'Size',
-    flex: 1,
-    renderCell: (params: GridRenderCellParams<BackupRow>) => `${((params.row.size || 0) / 1024 / 1024).toFixed(2)} MB`,
-  },
-  {
-    field: 'status',
-    headerName: 'Status',
-    flex: 1,
-    renderCell: () => <Chip label="Success" color="success" />,
-  },
-  {
-    field: 'actions',
-    headerName: 'Actions',
-    flex: 1.2,
-    sortable: false,
-    renderCell: (params) => (
-      <Stack direction="row" spacing={1}>
-        <Button size="small" variant="outlined" component="a" href={`/api/backups/${params.row.name}/download`}>
-          Download
-        </Button>
-      </Stack>
-    ),
-  },
-];
 
 export const AdminBackupsPage = () => {
   const backupsQuery = useQuery({ queryKey: ['backups'], queryFn: fetchBackups });
@@ -46,9 +12,51 @@ export const AdminBackupsPage = () => {
     mutationFn: triggerBackup,
     onSuccess: () => backupsQuery.refetch(),
   });
+  const downloadMutation = useMutation({
+    mutationFn: downloadBackup,
+  });
 
   const rows: BackupRow[] = (backupsQuery.data || []).map((backup, index) => ({ id: index, ...backup }));
   const lastBackup = backupsQuery.data?.[0];
+
+  const columns: GridColDef<BackupRow>[] = [
+    {
+      field: 'modified',
+      headerName: 'Date',
+      flex: 1,
+      renderCell: (params: GridRenderCellParams<BackupRow>) => new Date(params.row.modified).toLocaleString(),
+    },
+    {
+      field: 'size',
+      headerName: 'Size',
+      flex: 1,
+      renderCell: (params: GridRenderCellParams<BackupRow>) => `${((params.row.size || 0) / 1024 / 1024).toFixed(2)} MB`,
+    },
+    {
+      field: 'status',
+      headerName: 'Status',
+      flex: 1,
+      renderCell: () => <Chip label="Success" color="success" />,
+    },
+    {
+      field: 'actions',
+      headerName: 'Actions',
+      flex: 1.2,
+      sortable: false,
+      renderCell: (params) => (
+        <Stack direction="row" spacing={1}>
+          <Button
+            size="small"
+            variant="outlined"
+            onClick={() => downloadMutation.mutate(params.row.name)}
+            disabled={downloadMutation.isPending}
+          >
+            {downloadMutation.isPending ? 'Downloading...' : 'Download'}
+          </Button>
+        </Stack>
+      ),
+    },
+  ];
 
   return (
     <Stack spacing={3}>
