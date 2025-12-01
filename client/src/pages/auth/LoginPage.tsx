@@ -87,9 +87,9 @@ export const LoginPage = () => {
             <Button variant="contained" size="large" type="submit" disabled={loading}>
               {loading ? 'Signing in…' : 'Login'}
             </Button>
-            <Typography variant="body2" textAlign="center">
-              <Link to="/forgot-password">Forgot Password?</Link>
-            </Typography>
+            <Button variant="text" size="small" onClick={() => navigate('/register')}>
+              Register
+            </Button>
             {error && <Alert severity="error">{error}</Alert>}
             {requiresMfa && <Alert severity="info">MFA enabled. Enter your 6-digit code to continue.</Alert>}
           </Stack>

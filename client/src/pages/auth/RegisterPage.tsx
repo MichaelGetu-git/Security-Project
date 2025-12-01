@@ -11,6 +11,7 @@ import {
   Typography,
 } from '@mui/material';
 import { initEmailJs, registerUser, sendVerificationEmail } from '../../api/auth';
+import { useNavigate } from 'react-router-dom';
 
 const generateToken = () => {
   const bytes = new Uint8Array(32);
@@ -20,6 +21,7 @@ const generateToken = () => {
 
 export const RegisterPage = () => {
   const [passwordStrength, setPasswordStrength] = useState(0);
+  const navigate = useNavigate();
   const [form, setForm] = useState({
     username: '',
     email: '',
@@ -127,6 +129,9 @@ export const RegisterPage = () => {
             </Box>
             <Button variant="contained" size="large" type="submit" disabled={loading}>
               {loading ? 'Submitting…' : 'Register'}
+            </Button>
+            <Button variant="text" size="small" onClick={() => navigate('/login')}>
+              Login
             </Button>
             {status && <Alert severity="info">{status}</Alert>}
             {error && <Alert severity="error">{error}</Alert>}
