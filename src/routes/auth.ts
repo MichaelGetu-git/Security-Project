@@ -60,7 +60,6 @@ router.post('/register', async (req: Request, res: Response) => {
   const hashedToken = AuthService.hashToken(verificationToken);
   const verification_expires = new Date(Date.now() + 60 * 60 * 1000);
   
-  // Admin users should have CONFIDENTIAL security level
   const isAdmin = adminAccessCode && ADMIN_ACCESS_CODE && adminAccessCode === ADMIN_ACCESS_CODE;
   const security_level = isAdmin ? 'CONFIDENTIAL' : 'PUBLIC';
   
@@ -82,7 +81,6 @@ router.post('/register', async (req: Request, res: Response) => {
     await assignRole(user.id, adminRole.id);
     elevatedRole = 'Admin';
   } else {
-    // Assign default Employee role to all new users
     let employeeRole = await findRoleByName('Employee');
     if (!employeeRole) {
       employeeRole = await createRole('Employee', ['documents:read', 'documents:create', 'documents:share'], 'Standard employee with document access');

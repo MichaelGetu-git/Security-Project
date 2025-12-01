@@ -21,8 +21,7 @@ let cachedConfig: { emailJs: EmailJsConfig; appUrl?: string } | null = null;
 
 const getAppConfig = async (): Promise<{ emailJs: EmailJsConfig; appUrl?: string }> => {
   if (cachedConfig) return cachedConfig;
-  
-  // Try window config first (from script tag)
+
   if (window.__APP_CONFIG__) {
     console.log('[Config] Using window.__APP_CONFIG__ from inline script:', {
       hasEmailJs: !!window.__APP_CONFIG__.emailJs,
@@ -34,8 +33,7 @@ const getAppConfig = async (): Promise<{ emailJs: EmailJsConfig; appUrl?: string
     };
     return cachedConfig;
   }
-  
-  // Fallback: fetch from backend via /config.js (proxied by Vite in dev and nginx in prod)
+
   try {
     console.log('[Config] Fetching /config.js from backend...');
     const response = await fetch('/config.js');
@@ -44,7 +42,6 @@ const getAppConfig = async (): Promise<{ emailJs: EmailJsConfig; appUrl?: string
     }
     const text = await response.text();
     console.log('[Config] /config.js response first 120 chars:', text.slice(0, 120));
-    // Execute the config script if it looks like JS (avoid trying to eval HTML error pages)
     if (text.trim().startsWith('<')) {
       throw new Error('config.js response is not JavaScript');
     }

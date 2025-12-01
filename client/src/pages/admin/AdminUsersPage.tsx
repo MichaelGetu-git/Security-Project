@@ -373,7 +373,6 @@ const EditRoleDialog = ({
   onRemove: (roleName: string) => void;
   onCreateRole: () => void;
 }) => {
-  // Filter out roles that are already assigned to the user
   const availableRoles = roles.filter((role) => !user?.roles.includes(role.name));
 
   return (

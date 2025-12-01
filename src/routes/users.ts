@@ -142,17 +142,15 @@ router.post('/role-requests/:id/resolve', authenticate, enforceRBAC('roles:manag
   
   const requestId = Number(req.params.id);
   const authReq = req as AuthRequest;
-  
-  // Get the request details
+
   const { rows } = await pool.query('SELECT * FROM role_requests WHERE id = $1', [requestId]);
   if (rows.length === 0) {
     return res.status(404).json({ error: 'Request not found' });
   }
-  
+
   const request = rows[0];
   const requester = await findUserById(request.user_id);
-  
-  // If approved, update the user's security level
+
   if (status === 'APPROVED') {
     const validLevels = ['PUBLIC', 'INTERNAL', 'CONFIDENTIAL'];
     if (validLevels.includes(request.requested_role)) {
@@ -180,7 +178,6 @@ router.post('/role-requests/:id/resolve', authenticate, enforceRBAC('roles:manag
       });
     }
   } else {
-    // REJECTED
     await createAuditLog({
       user_id: authReq.user?.userId,
       username: authReq.user?.username,

@@ -48,7 +48,6 @@ export const MainLayout = () => {
   const { user, accessToken, clearTokens } = authStore();
   const isAdmin = user?.roles?.includes('Admin') || false;
 
-  // Redirect non-admin users away from admin routes
   useEffect(() => {
     if (accessToken && user && !isAdmin && location.pathname.startsWith('/admin')) {
       navigate('/documents', { replace: true });

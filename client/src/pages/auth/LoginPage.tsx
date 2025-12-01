@@ -32,7 +32,6 @@ export const LoginPage = () => {
       if (!rememberMe) {
         sessionStorage.setItem('auth', 'true');
       }
-      // Redirect based on user role
       const isAdmin = profile.roles?.includes('Admin') || false;
       navigate(isAdmin ? '/admin/users' : '/documents');
     } catch (err: any) {

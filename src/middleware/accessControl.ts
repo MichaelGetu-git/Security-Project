@@ -41,27 +41,21 @@ export const checkABAC = (
   requiredRole: string | null,
   _currentTime: Date, // Reserved for future time-based ABAC checks
 ): boolean => {
-  // If no department is specified on the resource, allow access
   if (!resourceDepartment || resourceDepartment === 'UNKNOWN' || resourceDepartment === '') {
     return true;
   }
-  
-  // If user has no department, deny access to department-restricted resources
+
   if (!userDepartment || userDepartment === 'UNKNOWN') {
     return false;
   }
-  
-  // If departments match, allow access
+
   if (userDepartment === resourceDepartment) {
-    // If a specific role is required, check it
     if (requiredRole) {
       return userRole === requiredRole;
     }
-    // Otherwise, department match is sufficient
     return true;
   }
-  
-  // Departments don't match
+
   return false;
 };
 

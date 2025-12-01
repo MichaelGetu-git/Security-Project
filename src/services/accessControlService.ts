@@ -21,50 +21,32 @@ export const evaluateAccess = async (
 
   const hasApprovedRequest = await hasApprovedAccessRequest(reqUser.userId, document.id);
 
-  // Check if user has direct permission for this document (granted by admin/owner)
   const hasDirectPermission = permissions.some(
     (perm) => perm.user_id === reqUser.userId && (perm.permission_type === 'read' || perm.permission_type === '*'),
   );
 
-  // Check if user has an approved request AND the corresponding permission still exists
   const hasException = (hasApprovedRequest && hasDirectPermission) || hasDirectPermission;
 
-  // MAC check - can be bypassed by direct permissions or approved admin access requests
   let macAllowed = checkMAC(reqUser.security_level, document.classification);
   if (!macAllowed && !hasException) {
     reasons.push('MAC: insufficient clearance');
   } else if (!macAllowed && hasException) {
-    // MAC bypassed due to direct permission or approved admin access request
     macAllowed = true;
   }
 
-  // DAC check:
-  // - PUBLIC documents: All authenticated users can access (subject to MAC/RBAC)
-  // - INTERNAL documents: INTERNAL and CONFIDENTIAL users can access (if MAC passes)
-  // - CONFIDENTIAL documents: CONFIDENTIAL users can access (if MAC passes)
-  // - Users can always access documents they own
-  // - Users with explicit DAC grants can always access
   let dacAllowed = false;
 
-  // Owner always has access
   if (document.owner_id === reqUser.userId) {
     dacAllowed = true;
-  }
-  // Explicit DAC grant always works
-  else if (permissions.some(
+  } else if (permissions.some(
     (perm) => perm.user_id === reqUser.userId && (perm.permission_type === 'read' || perm.permission_type === '*'),
   )) {
     dacAllowed = true;
-  }
-  // For documents at or below user's security level, allow access (MAC-based DAC)
-  else if (document.classification === 'PUBLIC') {
-    // PUBLIC documents are accessible to all authenticated users
+  } else if (document.classification === 'PUBLIC') {
     dacAllowed = true;
   } else if (document.classification === 'INTERNAL' && macAllowed) {
-    // INTERNAL documents: If user has INTERNAL or CONFIDENTIAL clearance (MAC passed), allow access
     dacAllowed = true;
   } else if (document.classification === 'CONFIDENTIAL' && macAllowed) {
-    // CONFIDENTIAL documents: If user has CONFIDENTIAL clearance (MAC passed), allow access
     dacAllowed = true;
   }
 
@@ -76,9 +58,8 @@ export const evaluateAccess = async (
   const policyEngine = new PolicyEngine(policies);
   const isOwner = document.owner_id === reqUser.userId;
 
-  // Check if user owns document, has DAC permission, or has an approved exception request
   const isOwnerOrHasDAC = isOwner || dacAllowed || hasException;
-  
+
   const policyContext = {
     user: {
       id: reqUser.userId,
@@ -91,14 +72,10 @@ export const evaluateAccess = async (
     action: 'read',
     time: new Date(),
     department: reqUser.department,
-    // Pass ownership/DAC info so policy engine can be lenient where appropriate
     isOwnerOrHasDAC,
     isOwner,
   };
 
-  // Policy engine evaluation:
-  // - If user has an approved exception for this document, bypass policy engine (treat as allowed)
-  // - Otherwise, evaluate normally
   let rulesAllowed = true;
   if (!hasException) {
     rulesAllowed = policyEngine.evaluate(policyContext);
@@ -107,34 +84,26 @@ export const evaluateAccess = async (
     }
   }
 
-  // ABAC check: Only apply if there's an active ABAC policy with department restrictions
-  // For documents without department restrictions or when user owns/has DAC access, ABAC should pass
   let abacAllowed = true;
   const hasDepartmentPolicy = policies.some((p) => p.type === 'ABAC' && p.is_active && p.rules?.department);
 
   if (hasDepartmentPolicy && document.department && !isOwnerOrHasDAC && !hasException) {
-    // Handle new department visibility system
     let documentDepartments: string[] = [];
 
     if (document.department === 'ALL_DEPARTMENTS') {
-      // Document is visible to all departments - no ABAC restriction
       abacAllowed = true;
     } else {
-      // Try to parse as JSON array of departments
       try {
         const parsed = JSON.parse(document.department);
         if (Array.isArray(parsed)) {
           documentDepartments = parsed;
         } else {
-          // Legacy single department string
           documentDepartments = [document.department];
         }
       } catch {
-        // Legacy single department string
         documentDepartments = [document.department];
       }
 
-      // Check if user is in one of the allowed departments
       const userDepartment = reqUser.department;
       abacAllowed = !userDepartment || documentDepartments.includes(userDepartment);
     }
@@ -144,12 +113,6 @@ export const evaluateAccess = async (
     reasons.push('ABAC: attribute mismatch');
   }
 
-  // Access is allowed if:
-  // 1. MAC passes (user has sufficient clearance) - REQUIRED
-  // 2. RBAC passes (user has documents:read permission) - REQUIRED
-  // 3. DAC passes (user owns document OR has been granted access) - REQUIRED
-  // 4. Policy engine allows (RuBAC/ABAC policies) - REQUIRED
-  // 5. ABAC allows (only enforced if there's a department policy AND user doesn't own/have DAC) - CONDITIONAL
   const allowed = macAllowed && rbacAllowed && dacAllowed && rulesAllowed && abacAllowed;
   const severity = allowed ? 'INFO' : reasons.some((reason) => reason.includes('Policy')) ? 'CRITICAL' : 'WARN';
   return { allowed, reasons, severity };

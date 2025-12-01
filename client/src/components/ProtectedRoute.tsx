@@ -11,12 +11,10 @@ type ProtectedRouteProps = {
 export const ProtectedRoute = ({ requireAdmin = false, requireRoles = [], requireAnyRole = true }: ProtectedRouteProps) => {
   const { user, accessToken } = authStore();
 
-  // Not authenticated
   if (!accessToken || !user) {
     return <Navigate to="/login" replace />;
   }
 
-  // Check admin requirement
   if (requireAdmin && !user.roles?.includes('Admin')) {
     return (
       <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', gap: 2 }}>
@@ -30,7 +28,6 @@ export const ProtectedRoute = ({ requireAdmin = false, requireRoles = [], requir
     );
   }
 
-  // Check role requirements
   if (requireRoles.length > 0) {
     const userRoles = user.roles || [];
     const hasRequiredRoles = requireAnyRole

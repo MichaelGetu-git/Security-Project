@@ -89,7 +89,6 @@ router.get('/', authenticate, async (req, res: Response) => {
     severity: deniedDocs.length ? 'WARN' : 'INFO',
   });
 
-  // Log access to each document (for permission tracking)
   for (const doc of allowedDocs) {
     await createAuditLog({
       user_id: authReq.user.userId,
@@ -121,7 +120,6 @@ router.post('/', authenticate, enforceRBAC('documents:create'), async (req, res:
     return res.status(400).json({ error: 'Document name is required' });
   }
 
-  // Validate visibility and departments
   if (visibility !== 'all' && visibility !== 'specific') {
     return res.status(400).json({ error: 'Visibility must be "all" or "specific"' });
   }
@@ -130,7 +128,6 @@ router.post('/', authenticate, enforceRBAC('documents:create'), async (req, res:
     return res.status(400).json({ error: 'At least one department must be selected when visibility is "specific"' });
   }
 
-  // MAC enforcement: Users can only create documents at or below their security level
   const SECURITY_LEVELS: Record<string, number> = { PUBLIC: 1, INTERNAL: 2, CONFIDENTIAL: 3 };
   const userLevel = SECURITY_LEVELS[authReq.user.security_level] || 1;
   const docLevel = SECURITY_LEVELS[classification] || 1;

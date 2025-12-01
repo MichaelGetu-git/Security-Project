@@ -353,7 +353,6 @@ export const AdminDocumentsPage = () => {
                                   variant="outlined"
                                   color="primary"
                                   onClick={() => {
-                                    // Re-grant access using user ID from request
                                     grantMutation.mutate({
                                       documentId: document!.id,
                                       userId: request.user_id,
