@@ -61,6 +61,11 @@ export const updateUserSecurityLevel = (userId: number, level: DirectoryUser['se
 export const updateUserDepartment = (userId: number, department: string | null) =>
   api.put(`/users/${userId}/department`, { department });
 
+export const fetchDepartments = async () => {
+  const { data } = await api.get<{ departments: string[] }>('/users/departments');
+  return data.departments;
+};
+
 export const fetchUserAuditTrail = async (userId: number) => {
   const { data } = await api.get<{ logs: any[] }>(`/users/${userId}/audit`);
   return data.logs;

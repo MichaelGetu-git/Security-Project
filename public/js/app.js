@@ -141,7 +141,7 @@ const registerUser = async (event) => {
 
   const verificationToken = generateVerificationToken();
   const baseUrl = config.appUrl || window.location.origin;
-  const verifyUrl = `${baseUrl}/verify.html?token=${verificationToken}`;
+  const verifyUrl = `${baseUrl}/verify?token=${verificationToken}`;
 
   try {
     await sendVerificationEmail({ email: formPayload.email, username: formPayload.username, verifyUrl });

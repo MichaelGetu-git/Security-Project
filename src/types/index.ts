@@ -58,6 +58,23 @@ export interface DocumentPermission {
   granted_at: Date;
 }
 
+export interface DocumentAccessRequest {
+  id: number;
+  document_id: number;
+  user_id: number;
+  reason?: string;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  created_at: Date;
+  resolved_at?: Date;
+  resolved_by?: number;
+  resolution_note?: string;
+  document_name?: string;
+  document_classification?: string;
+  requester_username?: string;
+  requester_email?: string;
+  resolver_username?: string;
+}
+
 export interface PolicyRule {
   department?: string;
   role?: string;
@@ -127,6 +144,7 @@ export interface AccessControlContext {
   time: Date;
   ipAddress?: string;
   department?: string;
-  isOwnerOrHasDAC?: boolean; // If true, department-based policies should not block access
+  isOwnerOrHasDAC?: boolean; // If true, generic department-based policies should not block access
+  isOwner?: boolean; // True if the user is the owner of the resource
 }
 

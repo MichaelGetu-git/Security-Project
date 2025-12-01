@@ -23,23 +23,17 @@ import {
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import {
-  createPolicyRecord,
-  deletePolicyRecord,
-  fetchPolicies,
-  updatePolicyRecord,
-  type PolicyRecord,
-} from '../../api/rules';
+import { createPolicyRecord, deletePolicyRecord, fetchPolicies, updatePolicyRecord, type PolicyRecord } from '../../api/rules';
+import { fetchUsers, fetchRoles, type Role, type DirectoryUser } from '../../api/users';
 import { fetchAdminDocuments } from '../../api/documents';
 
 const WORKING_HOURS = 'Working Hours Restriction';
 const WEEKEND_BLOCK = 'Weekend Block';
-const HR_LEAVE = 'HR Leave Approval';
-const FINANCE_SALARY = 'Finance Salary Guard';
-
 export const AdminRulesPage = () => {
   const policiesQuery = useQuery({ queryKey: ['policies'], queryFn: fetchPolicies });
   const documentsQuery = useQuery({ queryKey: ['documents', 'admin'], queryFn: fetchAdminDocuments });
+  const rolesQuery = useQuery({ queryKey: ['roles'], queryFn: fetchRoles });
+  const usersQuery = useQuery({ queryKey: ['users'], queryFn: fetchUsers });
   const saveMutation = useMutation({
     mutationFn: (payload: { name: string; base: Partial<PolicyRecord> }) => upsertPolicy(payload.name, payload.base),
     onSuccess: () => policiesQuery.refetch(),
@@ -49,16 +43,37 @@ export const AdminRulesPage = () => {
     onSuccess: () => policiesQuery.refetch(),
   });
 
-  const [newRule, setNewRule] = useState({ department: '', selectedDocuments: [] as number[], restriction: '' });
+  const [newRule, setNewRule] = useState({ department: '', selectedDocuments: [] as number[] });
+
+  const departments: string[] =
+    useMemo(
+      () =>
+        Array.from(
+          new Set(
+            (usersQuery.data || [])
+              .map((u: DirectoryUser) => u.department)
+              .filter((d): d is string => !!d && d.trim().length > 0),
+          ),
+        ).sort(),
+      [usersQuery.data],
+    );
 
   const policies = policiesQuery.data || [];
 
   const getPolicy = (name: string) => policies.find((policy) => policy.name === name);
 
-  const workingHoursEnabled = !!getPolicy(WORKING_HOURS)?.is_active;
+  const workingHoursPolicy = getPolicy(WORKING_HOURS);
+  const weekendPolicy = getPolicy(WEEKEND_BLOCK);
+
+  const workingHoursEnabled = !!workingHoursPolicy?.is_active;
   const weekendBlockEnabled = !!getPolicy(WEEKEND_BLOCK)?.is_active;
-  const hrLeaveEnabled = !!getPolicy(HR_LEAVE)?.is_active;
-  const financeSalaryEnabled = !!getPolicy(FINANCE_SALARY)?.is_active;
+
+  const [workingStart, setWorkingStart] = useState<number>(
+    (workingHoursPolicy?.rules?.workingHours as any)?.start ?? 9,
+  );
+  const [workingEnd, setWorkingEnd] = useState<number>(
+    (workingHoursPolicy?.rules?.workingHours as any)?.end ?? 17,
+  );
 
   const abacPolicies = useMemo(() => policies.filter((policy) => policy.type === 'ABAC'), [policies]);
 
@@ -85,10 +100,9 @@ export const AdminRulesPage = () => {
       rules: {
         department: newRule.department,
         allowedResources: newRule.selectedDocuments, // Store document IDs
-        timeRestriction: newRule.restriction,
       },
     });
-    setNewRule({ department: '', selectedDocuments: [], restriction: '' });
+    setNewRule({ department: '', selectedDocuments: [] });
     policiesQuery.refetch();
   };
 
@@ -118,13 +132,49 @@ export const AdminRulesPage = () => {
                       onChange={(e) =>
                         togglePolicy(WORKING_HOURS, e.target.checked, {
                           type: 'RuBAC',
-                          rules: { timeRestriction: true, workingHours: { start: 9, end: 17 } },
+                          rules: { timeRestriction: true, workingHours: { start: workingStart, end: workingEnd } },
                         })
                       }
                     />
                   }
-                  label="Restrict to working hours (09:00-17:00)"
+                  label="Restrict to working hours"
                 />
+                <Stack direction="row" spacing={2}>
+                  <TextField
+                    label="Start hour (0-23)"
+                    type="number"
+                    inputProps={{ min: 0, max: 23 }}
+                    value={workingStart}
+                    onChange={(e) => {
+                      const v = Math.max(0, Math.min(23, Number(e.target.value) || 0));
+                      setWorkingStart(v);
+                      if (workingHoursEnabled) {
+                        togglePolicy(WORKING_HOURS, true, {
+                          type: 'RuBAC',
+                          rules: { timeRestriction: true, workingHours: { start: v, end: workingEnd }, approvalRole: workingHoursPolicy?.rules?.approvalRole },
+                        });
+                      }
+                    }}
+                    helperText="Users (non-admin) can access from this hour"
+                  />
+                  <TextField
+                    label="End hour (0-23)"
+                    type="number"
+                    inputProps={{ min: 0, max: 23 }}
+                    value={workingEnd}
+                    onChange={(e) => {
+                      const v = Math.max(0, Math.min(23, Number(e.target.value) || 0));
+                      setWorkingEnd(v);
+                      if (workingHoursEnabled) {
+                        togglePolicy(WORKING_HOURS, true, {
+                          type: 'RuBAC',
+                          rules: { timeRestriction: true, workingHours: { start: workingStart, end: v }, approvalRole: workingHoursPolicy?.rules?.approvalRole },
+                        });
+                      }
+                    }}
+                    helperText="Access allowed up to (but not including) this hour"
+                  />
+                </Stack>
                 <FormControlLabel
                   control={
                     <Checkbox
@@ -134,7 +184,7 @@ export const AdminRulesPage = () => {
                           type: 'RuBAC',
                           rules: { 
                             blockWeekend: true,
-                            approvalRole: getPolicy(WEEKEND_BLOCK)?.rules?.approvalRole || '',
+                            approvalRole: weekendPolicy?.rules?.approvalRole || '',
                           },
                         })
                       }
@@ -142,79 +192,57 @@ export const AdminRulesPage = () => {
                   }
                   label="Block weekend access"
                 />
-                <TextField
-                  label="Weekend approval role"
-                  placeholder="Security Manager"
-                  value={getPolicy(WEEKEND_BLOCK)?.rules?.approvalRole || ''}
-                  onChange={(e) =>
-                    togglePolicy(WEEKEND_BLOCK, true, {
-                      type: 'RuBAC',
-                      rules: { 
-                        blockWeekend: true,
-                        approvalRole: e.target.value,
-                      },
-                    })
-                  }
-                />
-                <TextField
-                  label="After-hours approval role"
-                  placeholder="Security Manager"
-                  value={getPolicy(WORKING_HOURS)?.rules?.approvalRole || ''}
-                  onChange={(e) =>
-                    togglePolicy(WORKING_HOURS, true, {
-                      type: 'RuBAC',
-                      rules: { timeRestriction: true, workingHours: { start: 9, end: 17 }, approvalRole: e.target.value },
-                    })
-                  }
-                />
-              </Stack>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                Conditional Rules
-              </Typography>
-              <Stack spacing={2}>
-                <FormControlLabel
-                  control={
-                    <Checkbox
-                      checked={hrLeaveEnabled}
-                      onChange={(e) =>
-                        togglePolicy(HR_LEAVE, e.target.checked, {
-                          type: 'RuBAC',
-                          rules: { role: 'HR Manager', approvalLimitDays: 10 },
-                        })
-                      }
-                    />
-                  }
-                  label="HR Managers can approve leave > 10 days"
-                />
-                <FormControlLabel
-                  control={
-                    <Checkbox
-                      checked={financeSalaryEnabled}
-                      onChange={(e) =>
-                        togglePolicy(FINANCE_SALARY, e.target.checked, {
-                          type: 'ABAC',
-                          rules: { department: 'Finance', allowedResources: 'Salary Data' },
-                        })
-                      }
-                    />
-                  }
-                  label="Only Finance can access salary data"
-                />
-                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-                  <TextField
-                    label="Custom rule description"
-                    placeholder="Only SOC can access logs after hours"
-                    fullWidth
-                    disabled
-                  />
-                  <Button variant="contained" sx={{ minWidth: 160 }} disabled>
-                    Add Rule
-                  </Button>
-                </Stack>
+                <FormControl fullWidth>
+                  <InputLabel>Weekend approval role</InputLabel>
+                  <Select
+                    label="Weekend approval role"
+                    value={weekendPolicy?.rules?.approvalRole || ''}
+                    onChange={(e) =>
+                      togglePolicy(WEEKEND_BLOCK, true, {
+                        type: 'RuBAC',
+                        rules: {
+                          blockWeekend: true,
+                          approvalRole: e.target.value,
+                        },
+                      })
+                    }
+                    disabled={rolesQuery.isLoading || !rolesQuery.data?.length}
+                  >
+                    {rolesQuery.isLoading && <MenuItem disabled>Loading roles...</MenuItem>}
+                    {!rolesQuery.isLoading && !rolesQuery.data?.length && <MenuItem disabled>No roles available</MenuItem>}
+                    {rolesQuery.data?.map((role: Role) => (
+                      <MenuItem key={role.id} value={role.name}>
+                        {role.name}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+                <FormControl fullWidth>
+                  <InputLabel>After-hours approval role</InputLabel>
+                  <Select
+                    label="After-hours approval role"
+                    value={workingHoursPolicy?.rules?.approvalRole || ''}
+                    onChange={(e) =>
+                      togglePolicy(WORKING_HOURS, true, {
+                        type: 'RuBAC',
+                        rules: {
+                          timeRestriction: true,
+                          workingHours: { start: workingStart, end: workingEnd },
+                          approvalRole: e.target.value,
+                        },
+                      })
+                    }
+                    disabled={rolesQuery.isLoading || !rolesQuery.data?.length}
+                  >
+                    {rolesQuery.isLoading && <MenuItem disabled>Loading roles...</MenuItem>}
+                    {!rolesQuery.isLoading && !rolesQuery.data?.length && <MenuItem disabled>No roles available</MenuItem>}
+                    {rolesQuery.data?.map((role: Role) => (
+                      <MenuItem key={role.id} value={role.name}>
+                        {role.name}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
               </Stack>
             </CardContent>
           </Card>
@@ -227,33 +255,29 @@ export const AdminRulesPage = () => {
             <Table size="small">
               <TableHead>
                 <TableRow>
-                  <TableCell>Name</TableCell>
-                  <TableCell>Department</TableCell>
-                  <TableCell>Resources</TableCell>
-                  <TableCell>Time Restriction</TableCell>
+                  <TableCell>Rule Name</TableCell>
+                  <TableCell>Department (who)</TableCell>
+                  <TableCell>Documents (what)</TableCell>
                   <TableCell align="center">Actions</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {abacPolicies.map((rule) => (
                   <TableRow key={rule.id}>
-                  <TableCell>{rule.name}</TableCell>
-                  <TableCell>{rule.rules?.department || '-'}</TableCell>
-                  <TableCell>
-                    {Array.isArray(rule.rules?.allowedResources) ? (
-                      <Stack direction="row" spacing={0.5} flexWrap="wrap">
-                        {rule.rules.allowedResources.map((docId: number) => {
-                          const doc = documentsQuery.data?.find((d) => d.id === docId);
-                          return doc ? <Chip key={docId} label={doc.name} size="small" /> : null;
-                        })}
-                      </Stack>
-                    ) : typeof rule.rules?.allowedResources === 'string' ? (
-                      rule.rules.allowedResources
-                    ) : (
-                      '-'
-                    )}
-                  </TableCell>
-                  <TableCell>{String(rule.rules?.timeRestriction || '-')}</TableCell>
+                    <TableCell>{rule.name}</TableCell>
+                    <TableCell>{rule.rules?.department || '-'}</TableCell>
+                    <TableCell>
+                      {Array.isArray(rule.rules?.allowedResources) ? (
+                        <Stack direction="row" spacing={0.5} flexWrap="wrap">
+                          {rule.rules.allowedResources.map((docId: number) => {
+                            const doc = documentsQuery.data?.find((d) => d.id === docId);
+                            return doc ? <Chip key={docId} label={doc.name} size="small" /> : null;
+                          })}
+                        </Stack>
+                      ) : (
+                        '-'
+                      )}
+                    </TableCell>
                     <TableCell align="center">
                       <IconButton size="small" onClick={() => deleteMutation.mutate(rule.id)}>
                         <DeleteIcon fontSize="small" />
@@ -263,8 +287,10 @@ export const AdminRulesPage = () => {
                 ))}
                 {!abacPolicies.length && (
                   <TableRow>
-                    <TableCell colSpan={5}>
-                      <Typography color="text.secondary">No attribute rules configured.</Typography>
+                    <TableCell colSpan={4}>
+                      <Typography color="text.secondary">
+                        No attribute rules configured. Use the form below to say “only this department can access these documents”.
+                      </Typography>
                     </TableCell>
                   </TableRow>
                 )}
@@ -275,12 +301,25 @@ export const AdminRulesPage = () => {
                 Add New Rule
               </Typography>
               <Stack spacing={2}>
-                <TextField
-                  label="Department"
-                  value={newRule.department}
-                  onChange={(e) => setNewRule((prev) => ({ ...prev, department: e.target.value }))}
-                  placeholder="e.g., Finance, IT, HR"
-                />
+                <FormControl fullWidth>
+                  <InputLabel>Department</InputLabel>
+                  <Select
+                    label="Department"
+                    value={newRule.department}
+                    onChange={(e) => setNewRule((prev) => ({ ...prev, department: e.target.value as string }))}
+                    disabled={usersQuery.isLoading}
+                  >
+                    {usersQuery.isLoading && <MenuItem disabled>Loading departments...</MenuItem>}
+                    {!usersQuery.isLoading && !departments.length && (
+                      <MenuItem disabled>No departments found. Set departments for users first.</MenuItem>
+                    )}
+                    {departments.map((dept) => (
+                      <MenuItem key={dept} value={dept}>
+                        {dept}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
                 <FormControl fullWidth>
                   <InputLabel>Allowed Resources (Documents)</InputLabel>
                   <Select
@@ -305,13 +344,9 @@ export const AdminRulesPage = () => {
                     )) || <MenuItem disabled>No documents available</MenuItem>}
                   </Select>
                 </FormControl>
-                <TextField
-                  label="Time Restriction (optional)"
-                  value={newRule.restriction}
-                  onChange={(e) => setNewRule((prev) => ({ ...prev, restriction: e.target.value }))}
-                  placeholder="e.g., Working hours only"
-                  helperText="Optional: Additional time-based restrictions"
-                />
+                <Typography variant="body2" color="text.secondary">
+                  This rule means: <strong>only</strong> users in the selected department can access the selected documents. Others are blocked by ABAC.
+                </Typography>
                 <Button variant="contained" onClick={handleAddAttributeRule} disabled={!newRule.department || newRule.selectedDocuments.length === 0}>
                   Save Rule
                 </Button>

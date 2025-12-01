@@ -24,6 +24,10 @@ const getAppConfig = async (): Promise<{ emailJs: EmailJsConfig; appUrl?: string
   
   // Try window config first (from script tag)
   if (window.__APP_CONFIG__) {
+    console.log('[Config] Using window.__APP_CONFIG__ from inline script:', {
+      hasEmailJs: !!window.__APP_CONFIG__.emailJs,
+      hasAppUrl: !!window.__APP_CONFIG__.appUrl,
+    });
     cachedConfig = {
       emailJs: window.__APP_CONFIG__.emailJs || {},
       appUrl: window.__APP_CONFIG__.appUrl,
@@ -31,11 +35,19 @@ const getAppConfig = async (): Promise<{ emailJs: EmailJsConfig; appUrl?: string
     return cachedConfig;
   }
   
-  // Fallback: fetch from API
+  // Fallback: fetch from backend via /config.js (proxied by Vite in dev and nginx in prod)
   try {
+    console.log('[Config] Fetching /config.js from backend...');
     const response = await fetch('/config.js');
+    if (!response.ok) {
+      throw new Error(`Failed to fetch config.js (status ${response.status})`);
+    }
     const text = await response.text();
-    // Execute the config script
+    console.log('[Config] /config.js response first 120 chars:', text.slice(0, 120));
+    // Execute the config script if it looks like JS (avoid trying to eval HTML error pages)
+    if (text.trim().startsWith('<')) {
+      throw new Error('config.js response is not JavaScript');
+    }
     // eslint-disable-next-line @typescript-eslint/no-implied-eval
     new Function(text)();
     const appConfig = window.__APP_CONFIG__ as { emailJs?: EmailJsConfig; appUrl?: string } | undefined;
@@ -44,6 +56,13 @@ const getAppConfig = async (): Promise<{ emailJs: EmailJsConfig; appUrl?: string
         emailJs: appConfig.emailJs || {},
         appUrl: appConfig.appUrl,
       };
+      console.log('[Config] Parsed __APP_CONFIG__ from /config.js:', {
+        hasEmailJs: !!config.emailJs,
+        hasServiceId: !!config.emailJs.serviceId,
+        hasTemplateId: !!config.emailJs.templateId,
+        hasPublicKey: !!config.emailJs.publicKey,
+        appUrl: config.appUrl,
+      });
       cachedConfig = config;
       return config;
     }
@@ -59,6 +78,7 @@ const getAppConfig = async (): Promise<{ emailJs: EmailJsConfig; appUrl?: string
 export const initEmailJs = async () => {
   const { emailJs } = await getAppConfig();
   if (emailJs.publicKey) {
+    console.log('[EmailJS] Initializing with publicKey (length only):', emailJs.publicKey.length);
     emailjs.init(emailJs.publicKey);
   } else {
     console.warn('EmailJS publicKey not found in config');
@@ -67,10 +87,18 @@ export const initEmailJs = async () => {
 
 export const sendVerificationEmail = async (params: { email: string; username: string; token: string }) => {
   const { emailJs, appUrl } = await getAppConfig();
+  console.log('[EmailJS] sendVerificationEmail called with config:', {
+    hasServiceId: !!emailJs.serviceId,
+    hasTemplateId: !!emailJs.templateId,
+    hasPublicKey: !!emailJs.publicKey,
+    appUrl: appUrl || window.location.origin,
+  });
+  const verifyUrl = `${appUrl || window.location.origin}/verify?token=${params.token}`;
   if (!emailJs.serviceId || !emailJs.templateId || !emailJs.publicKey) {
-    throw new Error('EmailJS is not configured. Please check your environment variables.');
+    // Graceful degradation: log a warning but don't block registration
+    console.warn('EmailJS is not configured. Skipping verification email.');
+    return verifyUrl;
   }
-  const verifyUrl = `${appUrl || window.location.origin}/verify.html?token=${params.token}`;
   await emailjs.send(emailJs.serviceId, emailJs.templateId, {
     email: params.email,
     username: params.username,
@@ -134,4 +162,6 @@ export const logoutUser = () => api.post('/auth/logout');
 
 export const submitRoleRequest = (payload: { role: string; justification: string }) =>
   api.post('/auth/role-request', payload);
+
+export const verifyEmail = (token: string) => api.get(`/auth/verify?token=${encodeURIComponent(token)}`);
 

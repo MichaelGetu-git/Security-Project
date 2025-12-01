@@ -22,6 +22,7 @@ const ProfileSecurityPage = lazy(() =>
 );
 const LoginPage = lazy(() => import('./pages/auth/LoginPage').then((module) => ({ default: module.LoginPage })));
 const RegisterPage = lazy(() => import('./pages/auth/RegisterPage').then((module) => ({ default: module.RegisterPage })));
+const VerifyEmailPage = lazy(() => import('./pages/auth/VerifyEmailPage').then((module) => ({ default: module.VerifyEmailPage })));
 
 const LoadingScreen = () => (
   <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
@@ -128,6 +129,14 @@ const router = createBrowserRouter([
     element: (
       <Suspense fallback={<LoadingScreen />}>
         <RegisterPage />
+      </Suspense>
+    ),
+  },
+  {
+    path: '/verify',
+    element: (
+      <Suspense fallback={<LoadingScreen />}>
+        <VerifyEmailPage />
       </Suspense>
     ),
   },

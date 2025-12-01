@@ -30,6 +30,22 @@ router.get('/roles', authenticate, enforceRBAC('roles:manage'), async (_req, res
   res.json({ roles });
 });
 
+router.get('/departments', authenticate, async (_req, res: Response) => {
+  try {
+    const result = await pool.query(`
+      SELECT DISTINCT department
+      FROM employees
+      WHERE department IS NOT NULL AND department != ''
+      ORDER BY department
+    `);
+    const departments = result.rows.map(row => row.department);
+    res.json({ departments });
+  } catch (error) {
+    console.error('Error fetching departments:', error);
+    res.status(500).json({ error: 'Failed to fetch departments' });
+  }
+});
+
 router.post('/roles', authenticate, enforceRBAC('roles:manage'), async (req, res: Response) => {
   const { name, permissions, description } = req.body;
   if (!name || !permissions || !Array.isArray(permissions)) {

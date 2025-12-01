@@ -44,16 +44,19 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// More permissive rate limiting for development
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
-  message: 'Too many requests from this IP',
+  windowMs: process.env.NODE_ENV === 'production' ? 15 * 60 * 1000 : 60 * 1000, // 15 min prod, 1 min dev
+  max: process.env.NODE_ENV === 'production' ? 1000 : 5000, // 1000 prod, 5000 dev
+  message: 'Too many requests from this IP, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
 });
 app.use('/api/', limiter);
 
 app.use(logRequest);
 
-app.get('/config.js', (_req: Request, res: Response) => {
+const sendConfig = (_req: Request, res: Response) => {
   const config = {
     recaptchaSiteKey: process.env.RECAPTCHA_SITE_KEY || '',
     appUrl: process.env.APP_URL || '',
@@ -64,7 +67,12 @@ app.get('/config.js', (_req: Request, res: Response) => {
     },
   };
   res.type('application/javascript').send(`window.__APP_CONFIG__ = ${JSON.stringify(config)};`);
-});
+};
+
+// Legacy path used in some setups
+app.get('/config.js', sendConfig);
+// API-friendly path used by the SPA (works through nginx /api proxy)
+app.get('/api/config.js', sendConfig);
 
 app.use(express.static(path.join(__dirname, '../public')));
 

@@ -17,16 +17,28 @@ export class PolicyEngine {
     const { resource, time } = context;
     const rules = policy.rules;
 
-    // Check if user is Admin - Admins always bypass time-based restrictions
-    const isAdmin = context.roles.some((role) => role.name === 'Admin');
+    const hasRole = (roleName?: string) => {
+      if (!roleName) {
+        return false;
+      }
+      const normalized = roleName.toLowerCase().trim();
+      return context.roles.some((role) => role.name.toLowerCase().trim() === normalized);
+    };
+
+    // Check if user is Admin - Admins always bypass policy restrictions
+    const isAdmin = hasRole('Admin');
+    if (isAdmin) {
+      return true;
+    }
 
     // ABAC Policy: Department + Allowed Resources
-    // Example: "Payroll Department" can access "Salary Data" documents, but "IT Department" cannot
+    // Example: "Finance" can access specific salary documents, but "HR" and others cannot.
     // If a policy specifies both department and allowedResources, enforce strict access:
     // - Only users from the specified department can access documents in allowedResources
-    // - Users from other departments are BLOCKED from those documents
+    // - Users from other departments are BLOCKED from those documents, even if MAC/DAC would normally allow
+    // - Owners still keep access to their own documents
     // - If document is NOT in allowedResources, this policy doesn't apply (other policies may still block)
-    if (rules.department && rules.allowedResources && resource?.id && !context.isOwnerOrHasDAC) {
+    if (rules.department && rules.allowedResources && resource?.id) {
       const allowedResources = Array.isArray(rules.allowedResources) 
         ? rules.allowedResources 
         : typeof rules.allowedResources === 'string' 
@@ -35,9 +47,14 @@ export class PolicyEngine {
       
       // If this document is in the allowedResources list
       if (allowedResources.length > 0 && allowedResources.includes(resource.id)) {
-        // Only users from the specified department can access
+        // Only users from the specified department can access.
+        // Document owners are always allowed.
         if (!context.department || context.department !== rules.department) {
-          // User is NOT from the allowed department - DENY access
+          if (context.isOwner) {
+            // Owner override: allow access
+            return true;
+          }
+          // User is NOT from the allowed department and not owner - DENY access
           return false;
         }
         // User IS from the allowed department - allow access (continue evaluation)
@@ -56,7 +73,7 @@ export class PolicyEngine {
       // (department policies are supplementary, not absolute blocks)
     }
 
-    if (rules.role && !context.roles.some((role) => role.name === rules.role)) {
+    if (rules.role && !hasRole(rules.role)) {
       return false;
     }
 
@@ -72,9 +89,8 @@ export class PolicyEngine {
       if (start <= end) {
         // Normal case: 9 AM to 5 PM
         if (hour < start || hour >= end) {
-          // Admin always bypasses, or check if user has approval role
-          if (isAdmin || (rules.approvalRole && context.roles.some((role) => role.name === rules.approvalRole))) {
-            // User is Admin or has approval role, allow access
+          if (rules.approvalRole && hasRole(rules.approvalRole)) {
+            // User has approval role, allow access
           } else {
             return false;
           }
@@ -83,9 +99,8 @@ export class PolicyEngine {
         // Spans midnight: e.g., 22 (10 PM) to 6 (6 AM)
         // Allowed hours: 22, 23, 0, 1, 2, 3, 4, 5 (but not 6)
         if (hour < start && hour >= end) {
-          // Admin always bypasses, or check if user has approval role
-          if (isAdmin || (rules.approvalRole && context.roles.some((role) => role.name === rules.approvalRole))) {
-            // User is Admin or has approval role, allow access
+          if (rules.approvalRole && hasRole(rules.approvalRole)) {
+            // User has approval role, allow access
           } else {
             return false;
           }
@@ -97,9 +112,8 @@ export class PolicyEngine {
     if (rules.blockWeekend) {
       const dayOfWeek = time.getDay();
       if (dayOfWeek === 0 || dayOfWeek === 6) {
-        // Admin always bypasses, or check if user has approval role
-        if (isAdmin || (rules.approvalRole && context.roles.some((role) => role.name === rules.approvalRole))) {
-          // User is Admin or has approval role, allow access
+        if (rules.approvalRole && hasRole(rules.approvalRole)) {
+          // User has approval role, allow access
         } else {
           return false;
         }
