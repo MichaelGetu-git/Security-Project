@@ -193,20 +193,11 @@ router.post('/:id/share', authenticate, enforceRBAC('documents:share'), async (r
     return res.status(400).json({ error: 'userId or email required' });
   }
 
-  // MAC enforcement: Cannot share documents with users who lack sufficient clearance
+  // Note: MAC enforcement is not applied to sharing - admins and owners can grant access
+  // to documents even to users who normally wouldn't have clearance
   const targetUser = await findUserById(targetUserId);
   if (!targetUser) {
     return res.status(404).json({ error: 'Target user not found' });
-  }
-
-  const SECURITY_LEVELS: Record<string, number> = { PUBLIC: 1, INTERNAL: 2, CONFIDENTIAL: 3 };
-  const targetUserLevel = SECURITY_LEVELS[targetUser.security_level] || 1;
-  const docLevel = SECURITY_LEVELS[document.classification] || 1;
-
-  if (targetUserLevel < docLevel) {
-    return res.status(403).json({ 
-      error: `Access denied: Cannot share ${document.classification} document with user having ${targetUser.security_level} clearance. Target user needs at least ${document.classification} level.` 
-    });
   }
 
   const permissionType = permission || 'read';

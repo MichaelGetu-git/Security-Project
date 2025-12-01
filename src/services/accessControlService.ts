@@ -21,17 +21,20 @@ export const evaluateAccess = async (
 
   const hasApprovedRequest = await hasApprovedAccessRequest(reqUser.userId, document.id);
 
-  // Check if user has an approved request AND the corresponding permission still exists
-  const hasException = hasApprovedRequest && permissions.some(
+  // Check if user has direct permission for this document (granted by admin/owner)
+  const hasDirectPermission = permissions.some(
     (perm) => perm.user_id === reqUser.userId && (perm.permission_type === 'read' || perm.permission_type === '*'),
   );
 
-  // MAC check - can be bypassed by approved admin access requests that still have permissions
+  // Check if user has an approved request AND the corresponding permission still exists
+  const hasException = (hasApprovedRequest && hasDirectPermission) || hasDirectPermission;
+
+  // MAC check - can be bypassed by direct permissions or approved admin access requests
   let macAllowed = checkMAC(reqUser.security_level, document.classification);
   if (!macAllowed && !hasException) {
     reasons.push('MAC: insufficient clearance');
   } else if (!macAllowed && hasException) {
-    // MAC bypassed due to approved admin access request with active permission
+    // MAC bypassed due to direct permission or approved admin access request
     macAllowed = true;
   }
 

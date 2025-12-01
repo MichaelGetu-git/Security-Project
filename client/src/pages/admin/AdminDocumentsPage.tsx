@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import {
+  Alert,
   Box,
   Button,
   Card,
@@ -15,6 +16,8 @@ import {
   List,
   ListItem,
   ListItemText,
+  MenuItem,
+  Snackbar,
   Stack,
   TextField,
   Typography,
@@ -33,12 +36,18 @@ import {
   type DocumentRecord,
   type DocumentAccessRequest,
 } from '../../api/documents';
+import { fetchUsers, type DirectoryUser } from '../../api/users';
 
 export const AdminDocumentsPage = () => {
   const documentsQuery = useQuery({ queryKey: ['documents', 'admin'], queryFn: fetchAdminDocuments });
   const accessRequestsQuery = useQuery({
     queryKey: ['documents', 'access-requests'],
     queryFn: () => fetchDocumentAccessRequests(),
+  });
+
+  const usersQuery = useQuery({
+    queryKey: ['users'],
+    queryFn: () => fetchUsers(),
   });
   const [selectedDoc, setSelectedDoc] = useState<DocumentRecord | null>(null);
   const [shareEmail, setShareEmail] = useState('');
@@ -52,6 +61,7 @@ export const AdminDocumentsPage = () => {
   }>({ open: false, request: null, action: 'APPROVE' });
   const [decisionNote, setDecisionNote] = useState('');
   const [decisionPermission, setDecisionPermission] = useState('read');
+  const [successMessage, setSuccessMessage] = useState<string>('');
 
   const createMutation = useMutation({
     mutationFn: createDocument,
@@ -63,9 +73,18 @@ export const AdminDocumentsPage = () => {
   });
 
   const grantMutation = useMutation({
-    mutationFn: (payload: { documentId: number; email: string; permission: string }) =>
-      grantDocumentAccess(payload.documentId, { email: payload.email, permission: payload.permission }),
-    onSuccess: () => documentsQuery.refetch(),
+    mutationFn: (payload: { documentId: number; email?: string; userId?: number; permission: string }) => {
+      const apiPayload = payload.email
+        ? { email: payload.email, permission: payload.permission }
+        : { userId: payload.userId!, permission: payload.permission };
+      return grantDocumentAccess(payload.documentId, apiPayload);
+    },
+    onSuccess: (data, variables) => {
+      documentsQuery.refetch();
+      accessRequestsQuery.refetch();
+      const selectedUser = usersQuery.data?.find(u => u.email === variables.email || u.id === variables.userId);
+      setSuccessMessage(`Successfully granted ${variables.permission} access to "${selectedDoc?.name}" for ${selectedUser?.username || 'user'}. The user may need to refresh their documents page to see the changes.`);
+    },
   });
 
   const revokeMutation = useMutation({
@@ -95,8 +114,15 @@ export const AdminDocumentsPage = () => {
 
   const handleGrant = async () => {
     if (!selectedDoc || !shareEmail) return;
-    await grantMutation.mutateAsync({ documentId: selectedDoc.id, email: shareEmail, permission });
-    setShareEmail('');
+    try {
+      await grantMutation.mutateAsync({ documentId: selectedDoc.id, email: shareEmail, permission });
+      setShareEmail('');
+      setPermission('read'); // Reset permission
+      setSelectedDoc(null); // Close the dialog
+    } catch (error) {
+      console.error('Grant failed:', error);
+      setSuccessMessage(`Failed to grant access: ${error}`);
+    }
   };
 
   const handleCreate = () => {
@@ -329,10 +355,10 @@ export const AdminDocumentsPage = () => {
                                   variant="outlined"
                                   color="primary"
                                   onClick={() => {
-                                    // Re-grant access using email from request
+                                    // Re-grant access using user ID from request
                                     grantMutation.mutate({
                                       documentId: document!.id,
-                                      email: request.requester_email || `${request.requester_username}@example.com`,
+                                      userId: request.user_id,
                                       permission: 'read'
                                     });
                                   }}
@@ -359,12 +385,27 @@ export const AdminDocumentsPage = () => {
         <DialogContent>
           <Stack spacing={2}>
             <TextField
-              label="Email"
-              placeholder="employee@example.com"
+              select
+              label="Select User"
               value={shareEmail}
               onChange={(e) => setShareEmail(e.target.value)}
               fullWidth
-            />
+              helperText="Choose a user to grant access to"
+              disabled={usersQuery.isLoading}
+            >
+              {(usersQuery.data || []).map((user: DirectoryUser) => (
+                <MenuItem key={user.id} value={user.email}>
+                  <Box>
+                    <Typography variant="body2" fontWeight={500}>
+                      {user.username}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {user.email}
+                    </Typography>
+                  </Box>
+                </MenuItem>
+              ))}
+            </TextField>
             <TextField
               label="Permission"
               select
@@ -539,6 +580,21 @@ export const AdminDocumentsPage = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      <Snackbar
+        open={!!successMessage}
+        autoHideDuration={6000}
+        onClose={() => setSuccessMessage('')}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert
+          onClose={() => setSuccessMessage('')}
+          severity={successMessage.includes('Failed') ? 'error' : 'success'}
+          sx={{ width: '100%' }}
+        >
+          {successMessage}
+        </Alert>
+      </Snackbar>
     </Stack>
   );
 };
