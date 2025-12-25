@@ -1,5 +1,5 @@
 import { Response, NextFunction } from 'express';
-import { AuthRequest, SecurityLevel, Role, Document, PolicyRule } from '../types';
+import { AuthRequest, SecurityLevel, Role, Document } from '../types';
 
 const SECURITY_LEVELS: Record<SecurityLevel, number> = {
   PUBLIC: 1,
@@ -23,16 +23,7 @@ export const checkDAC = (document: Document, userId: number, action: string): bo
   return userPermissions ? userPermissions.includes(action) : false;
 };
 
-export const checkRuBAC = (rules: PolicyRule): boolean => {
-  const currentHour = new Date().getHours();
-  if (rules.timeRestriction && rules.workingHours) {
-    const { start, end } = rules.workingHours;
-    if (currentHour < start || currentHour > end) {
-      return false;
-    }
-  }
-  return true;
-};
+// RuBAC checks are now handled by the PolicyEngine in accessControlService.ts
 
 export const checkABAC = (
   userDepartment: string | null,

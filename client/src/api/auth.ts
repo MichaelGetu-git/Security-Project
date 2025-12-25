@@ -66,7 +66,7 @@ const getAppConfig = async (): Promise<{ emailJs: EmailJsConfig; appUrl?: string
   } catch (err) {
     console.warn('Failed to load config.js:', err);
   }
-  
+
   const defaultConfig: { emailJs: EmailJsConfig; appUrl?: string } = { emailJs: {}, appUrl: undefined };
   cachedConfig = defaultConfig;
   return defaultConfig;
@@ -144,7 +144,11 @@ export const changePassword = (payload: { currentPassword: string; newPassword: 
 
 export const setupMfa = () => api.post('/auth/mfa/setup');
 
-export const enableMfa = (payload: { token: string }) => api.post('/auth/mfa/enable', payload);
+export const enableMfa = (payload: { token: string; backupCodes: string[] }) => api.post('/auth/mfa/enable', payload);
+
+export const disableMfa = (payload: { password: string; token: string }) => api.post('/auth/mfa/disable', payload);
+
+export const regenerateBackupCodes = (payload: { token: string }) => api.post('/auth/mfa/regenerate-backup-codes', payload);
 
 export const fetchSessions = async () => {
   const { data } = await api.get<{ sessions: any[] }>('/auth/sessions');

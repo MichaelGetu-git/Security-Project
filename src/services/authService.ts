@@ -1,6 +1,7 @@
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import speakeasy from 'speakeasy';
+import QRCode from 'qrcode';
 import crypto from 'crypto';
 import { JWTPayload, JwtUserPayload } from '../types';
 
@@ -55,15 +56,18 @@ export class AuthService {
     return { token, hashed, expires };
   }
 
-  static generateMFASecret(username: string): { secret: string; qrCode: string } {
+  static async generateMFASecret(username: string): Promise<{ secret: string; qrCode: string }> {
     const secret = speakeasy.generateSecret({
       name: `SecurityApp (${username})`,
       length: 32,
     });
 
+    // Generate QR code as base64 PNG image
+    const qrCodeDataUrl = await QRCode.toDataURL(secret.otpauth_url || '');
+
     return {
       secret: secret.base32,
-      qrCode: secret.otpauth_url || '',
+      qrCode: qrCodeDataUrl, // Returns data:image/png;base64,...
     };
   }
 
@@ -72,8 +76,28 @@ export class AuthService {
       secret,
       encoding: 'base32',
       token,
-      window: 2,
+      window: 6,
     });
+  }
+
+  static generateBackupCodes(): string[] {
+    const codes: string[] = [];
+    for (let i = 0; i < 10; i++) {
+      // Generate 8-digit codes
+      codes.push(crypto.randomInt(10000000, 99999999).toString());
+    }
+    return codes;
+  }
+
+  static hashBackupCodes(codes: string[]): string[] {
+    return codes.map(code =>
+      crypto.createHash('sha256').update(code).digest('hex')
+    );
+  }
+
+  static verifyBackupCode(hashedCodes: string[], inputCode: string): number {
+    const hashedInput = crypto.createHash('sha256').update(inputCode).digest('hex');
+    return hashedCodes.findIndex(code => code === hashedInput);
   }
 
   static hashToken(token: string): string {

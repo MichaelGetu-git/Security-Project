@@ -1,7 +1,8 @@
 import { Policy, AccessControlContext } from '../types';
+import { logger } from '../config/logger';
 
 export class PolicyEngine {
-  constructor(private policies: Policy[] = []) {}
+  constructor(private policies: Policy[] = []) { }
 
   register(policy: Policy) {
     this.policies.push(policy);
@@ -34,8 +35,8 @@ export class PolicyEngine {
       const allowedResources = Array.isArray(rules.allowedResources)
         ? rules.allowedResources
         : typeof rules.allowedResources === 'string'
-        ? []
-        : [];
+          ? []
+          : [];
 
       if (allowedResources.length > 0 && allowedResources.includes(resource.id)) {
         if (!context.department || context.department !== rules.department) {
@@ -58,25 +59,32 @@ export class PolicyEngine {
     }
 
     if (rules.workingHours) {
-      const hour = time.getHours();
-      const start = rules.workingHours.start;
-      const end = rules.workingHours.end;
+      const { start, end, timezoneOffset = 0 } = rules.workingHours;
 
-      if (start <= end) {
-        if (hour < start || hour >= end) {
-          if (rules.approvalRole && hasRole(rules.approvalRole)) {
-            // User has approval role
-          } else {
-            return false;
-          }
-        }
-      } else {
-        if (hour < start && hour >= end) {
-          if (rules.approvalRole && hasRole(rules.approvalRole)) {
-            // User has approval role
-          } else {
-            return false;
-          }
+      // Use UTC hours and apply the offset to get the user's local hour
+      // This ensures consistency regardless of server timezone
+      const utcHour = time.getUTCHours();
+      let localHour = (utcHour + timezoneOffset) % 24;
+      if (localHour < 0) localHour += 24; // Handle negative offsets
+
+      const isWithinRange = start <= end
+        ? (localHour >= start && localHour < end)
+        : (localHour >= start || localHour < end);
+
+      logger.debug('Policy workingHours evaluation', {
+        policyName: policy.name,
+        utcHour,
+        timezoneOffset,
+        localHour,
+        start,
+        end,
+        isWithinRange,
+        username: context.user.username
+      });
+
+      if (!isWithinRange) {
+        if (!(rules.approvalRole && hasRole(rules.approvalRole))) {
+          return false;
         }
       }
     }

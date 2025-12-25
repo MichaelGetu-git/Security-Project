@@ -11,14 +11,15 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { loginUser, fetchProfile } from '../../api/auth';
 
 export const LoginPage = () => {
   const navigate = useNavigate();
-  const [form, setForm] = useState({ email: '', password: '', otp: '' });
+  const [form, setForm] = useState({ email: '', password: '', otp: '', backupCode: '' });
   const [rememberMe, setRememberMe] = useState(false);
   const [requiresMfa, setRequiresMfa] = useState(false);
+  const [useBackupCode, setUseBackupCode] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -27,7 +28,15 @@ export const LoginPage = () => {
     setLoading(true);
     setError(null);
     try {
-      await loginUser({ email: form.email, password: form.password, otp: requiresMfa ? form.otp : undefined });
+      const payload: any = { email: form.email, password: form.password };
+      if (requiresMfa) {
+        if (useBackupCode) {
+          payload.backupCode = form.backupCode;
+        } else {
+          payload.otp = form.otp;
+        }
+      }
+      await loginUser(payload);
       const profile = await fetchProfile();
       if (!rememberMe) {
         sessionStorage.setItem('auth', 'true');
@@ -72,12 +81,45 @@ export const LoginPage = () => {
               required
             />
             {requiresMfa && (
-              <TextField
-                label="MFA Code"
-                value={form.otp}
-                onChange={(e) => setForm((prev) => ({ ...prev, otp: e.target.value }))}
-                fullWidth
-              />
+              <>
+                {useBackupCode ? (
+                  <>
+                    <TextField
+                      label="Backup Code"
+                      value={form.backupCode}
+                      onChange={(e) => setForm((prev) => ({ ...prev, backupCode: e.target.value }))}
+                      fullWidth
+                      placeholder="Enter 8-digit backup code"
+                    />
+                    <Button
+                      variant="text"
+                      size="small"
+                      onClick={() => setUseBackupCode(false)}
+                      sx={{ alignSelf: 'flex-start' }}
+                    >
+                      Use authenticator app instead
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <TextField
+                      label="MFA Code"
+                      value={form.otp}
+                      onChange={(e) => setForm((prev) => ({ ...prev, otp: e.target.value }))}
+                      fullWidth
+                      placeholder="Enter 6-digit code"
+                    />
+                    <Button
+                      variant="text"
+                      size="small"
+                      onClick={() => setUseBackupCode(true)}
+                      sx={{ alignSelf: 'flex-start' }}
+                    >
+                      Use backup code instead
+                    </Button>
+                  </>
+                )}
+              </>
             )}
             <FormControlLabel
               control={<Checkbox checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} />}
@@ -90,7 +132,7 @@ export const LoginPage = () => {
               Register
             </Button>
             {error && <Alert severity="error">{error}</Alert>}
-            {requiresMfa && <Alert severity="info">MFA enabled. Enter your 6-digit code to continue.</Alert>}
+            {requiresMfa && <Alert severity="info">MFA enabled. Enter your {useBackupCode ? 'backup code' : '6-digit code'} to continue.</Alert>}
           </Stack>
         </CardContent>
       </Card>

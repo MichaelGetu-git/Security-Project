@@ -13,6 +13,7 @@ export interface User {
   security_level: SecurityLevel;
   mfa_enabled: boolean;
   mfa_secret?: string;
+  mfa_backup_codes?: string;
   failed_attempts: number;
   locked_until?: Date;
   last_login?: Date;
@@ -79,7 +80,7 @@ export interface PolicyRule {
   department?: string;
   role?: string;
   timeRestriction?: boolean | string;
-  workingHours?: { start: number; end: number };
+  workingHours?: { start: number; end: number; timezoneOffset?: number };
   blockWeekend?: boolean;
   location?: string;
   allowedResources?: string | number[]; // Can be string (legacy) or array of document IDs

@@ -14,6 +14,9 @@ import {
   updateMfaSecret,
   enableMfa,
   updateProfile,
+  updateMfaBackupCodes,
+  disableMfa,
+  removeBackupCode,
 } from '../models/User';
 import { authenticate } from '../middleware/auth';
 import { AuthRequest } from '../types';
@@ -59,17 +62,17 @@ router.post('/register', async (req: Request, res: Response) => {
   const password_hash = await AuthService.hashPassword(password);
   const hashedToken = AuthService.hashToken(verificationToken);
   const verification_expires = new Date(Date.now() + 60 * 60 * 1000);
-  
+
   const isAdmin = adminAccessCode && ADMIN_ACCESS_CODE && adminAccessCode === ADMIN_ACCESS_CODE;
   const security_level = isAdmin ? 'CONFIDENTIAL' : 'PUBLIC';
-  
-  const user = await createUser({ 
-    username, 
-    email, 
-    password_hash, 
+
+  const user = await createUser({
+    username,
+    email,
+    password_hash,
     security_level,
-    verification_token: hashedToken, 
-    verification_expires 
+    verification_token: hashedToken,
+    verification_expires
   });
 
   let elevatedRole: string | null = null;
@@ -129,7 +132,7 @@ router.get('/verify', async (req: Request, res: Response) => {
 });
 
 router.post('/login', async (req: Request, res: Response) => {
-  const { email, password, otp } = req.body;
+  const { email, password, otp, backupCode } = req.body;
   const user = await findUserByEmail(email);
   if (!user) {
     return res.status(401).json({ error: 'Invalid credentials' });
@@ -163,7 +166,33 @@ router.post('/login', async (req: Request, res: Response) => {
   }
 
   if (user.mfa_enabled) {
-    if (!otp || !user.mfa_secret || !AuthService.verifyMFAToken(user.mfa_secret, otp)) {
+    let mfaValid = false;
+
+    // Try OTP first
+    if (otp && user.mfa_secret && AuthService.verifyMFAToken(user.mfa_secret, otp)) {
+      mfaValid = true;
+    }
+    // Try backup code if OTP not provided or failed
+    else if (backupCode && user.mfa_backup_codes) {
+      const backupCodes = JSON.parse(user.mfa_backup_codes) as string[];
+      const codeIndex = AuthService.verifyBackupCode(backupCodes, backupCode);
+      if (codeIndex !== -1) {
+        mfaValid = true;
+        // Remove used backup code
+        backupCodes.splice(codeIndex, 1);
+        await removeBackupCode(user.id, backupCodes);
+        await createAuditLog({
+          user_id: user.id,
+          username: user.username,
+          action: 'MFA_BACKUP_CODE_USED',
+          resource: 'auth',
+          ip_address: req.ip,
+          details: { remainingCodes: backupCodes.length },
+        });
+      }
+    }
+
+    if (!mfaValid) {
       return res.status(403).json({ error: 'MFA required', requiresMfa: true });
     }
   }
@@ -317,22 +346,22 @@ router.post('/role-request', authenticate, async (req, res) => {
   const SECURITY_LEVELS: Record<string, number> = { PUBLIC: 1, INTERNAL: 2, CONFIDENTIAL: 3 };
   const currentLevel = SECURITY_LEVELS[authReq.user.security_level] || 1;
   const requestedLevel = SECURITY_LEVELS[role] || 1;
-  
+
   if (requestedLevel <= currentLevel) {
-    return res.status(400).json({ 
-      error: `You cannot request a security level that is equal to or lower than your current level (${authReq.user.security_level}). You can only request upgrades.` 
+    return res.status(400).json({
+      error: `You cannot request a security level that is equal to or lower than your current level (${authReq.user.security_level}). You can only request upgrades.`
     });
   }
 
   await createRoleRequest(authReq.user.userId, role, justification);
-  
+
   await createAuditLog({
     user_id: authReq.user.userId,
     username: authReq.user.username,
     action: 'SECURITY_LEVEL_REQUEST_CREATED',
     resource: `user:${authReq.user.userId}`,
     ip_address: req.ip,
-    details: { 
+    details: {
       requesterId: authReq.user.userId,
       requesterUsername: authReq.user.username,
       currentLevel: authReq.user.security_level,
@@ -341,7 +370,7 @@ router.post('/role-request', authenticate, async (req, res) => {
     },
     severity: role === 'CONFIDENTIAL' ? 'WARN' : 'INFO',
   });
-  
+
   return res.status(201).json({ message: 'Security level request submitted' });
 });
 
@@ -351,15 +380,112 @@ router.post('/mfa/setup', authenticate, async (req, res) => {
     return res.status(401).json({ error: 'Unauthenticated' });
   }
 
-  const { secret, qrCode } = AuthService.generateMFASecret(authReq.authUser.username);
+  const { secret, qrCode } = await AuthService.generateMFASecret(authReq.authUser.username);
+  const backupCodes = AuthService.generateBackupCodes();
+
   await updateMfaSecret(authReq.user.userId, secret);
-  return res.json({ secret, qrCode });
+
+  await createAuditLog({
+    user_id: authReq.user.userId,
+    username: authReq.user.username,
+    action: 'MFA_SETUP_INITIATED',
+    resource: 'auth',
+    ip_address: req.ip,
+  });
+
+  return res.json({ secret, qrCode, backupCodes });
 });
 
 router.post('/mfa/enable', authenticate, async (req, res) => {
   const authReq = req as AuthRequest;
   if (!authReq.user || !authReq.authUser) {
     return res.status(401).json({ error: 'Unauthenticated' });
+  }
+
+  const { token, backupCodes } = req.body;
+
+  if (!token || !authReq.authUser.mfa_secret) {
+    return res.status(400).json({ error: 'Missing MFA token' });
+  }
+
+  if (!AuthService.verifyMFAToken(authReq.authUser.mfa_secret, token)) {
+    return res.status(400).json({ error: 'Invalid MFA token' });
+  }
+
+  // Hash and store backup codes
+  if (backupCodes && Array.isArray(backupCodes)) {
+    const hashedCodes = AuthService.hashBackupCodes(backupCodes);
+    await updateMfaBackupCodes(authReq.user.userId, hashedCodes);
+  }
+
+  await enableMfa(authReq.user.userId);
+
+  await createAuditLog({
+    user_id: authReq.user.userId,
+    username: authReq.user.username,
+    action: 'MFA_ENABLED',
+    resource: 'auth',
+    ip_address: req.ip,
+  });
+
+  return res.status(204).send();
+});
+
+router.post('/mfa/disable', authenticate, async (req, res) => {
+  const authReq = req as AuthRequest;
+  if (!authReq.user || !authReq.authUser) {
+    return res.status(401).json({ error: 'Unauthenticated' });
+  }
+
+  const { password, token } = req.body;
+  if (!password || !token) {
+    return res.status(400).json({ error: 'Missing password or MFA token' });
+  }
+
+  // Verify password
+  const matches = await AuthService.comparePassword(password, authReq.authUser.password_hash);
+  if (!matches) {
+    return res.status(400).json({ error: 'Invalid password' });
+  }
+
+  // Verify MFA token or backup code
+  let mfaValid = false;
+  if (authReq.authUser.mfa_secret && AuthService.verifyMFAToken(authReq.authUser.mfa_secret, token)) {
+    mfaValid = true;
+  } else if (authReq.authUser.mfa_backup_codes) {
+    const backupCodes = JSON.parse(authReq.authUser.mfa_backup_codes) as string[];
+    const codeIndex = AuthService.verifyBackupCode(backupCodes, token);
+    if (codeIndex !== -1) {
+      mfaValid = true;
+    }
+  }
+
+  if (!mfaValid) {
+    return res.status(400).json({ error: 'Invalid MFA token' });
+  }
+
+  await disableMfa(authReq.user.userId);
+
+  await createAuditLog({
+    user_id: authReq.user.userId,
+    username: authReq.user.username,
+    action: 'MFA_DISABLED',
+    resource: 'auth',
+    ip_address: req.ip,
+    severity: 'WARN',
+  });
+
+  return res.status(204).send();
+});
+
+router.post('/mfa/regenerate-backup-codes', authenticate, async (req, res) => {
+  const authReq = req as AuthRequest;
+  if (!authReq.user || !authReq.authUser) {
+    return res.status(401).json({ error: 'Unauthenticated' });
+  }
+
+  if (!authReq.authUser.mfa_enabled) {
+    return res.status(400).json({ error: 'MFA not enabled' });
   }
 
   const { token } = req.body;
@@ -371,8 +497,19 @@ router.post('/mfa/enable', authenticate, async (req, res) => {
     return res.status(400).json({ error: 'Invalid MFA token' });
   }
 
-  await enableMfa(authReq.user.userId);
-  return res.status(204).send();
+  const backupCodes = AuthService.generateBackupCodes();
+  const hashedCodes = AuthService.hashBackupCodes(backupCodes);
+  await updateMfaBackupCodes(authReq.user.userId, hashedCodes);
+
+  await createAuditLog({
+    user_id: authReq.user.userId,
+    username: authReq.user.username,
+    action: 'MFA_BACKUP_CODES_REGENERATED',
+    resource: 'auth',
+    ip_address: req.ip,
+  });
+
+  return res.json({ backupCodes });
 });
 
 router.get('/sessions', authenticate, async (req, res) => {

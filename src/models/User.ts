@@ -134,3 +134,18 @@ export const updateProfile = async (userId: number, data: { username?: string; p
   );
 };
 
+export const updateMfaBackupCodes = async (userId: number, hashedCodes: string[]) => {
+  await pool.query('UPDATE users SET mfa_backup_codes = $2 WHERE id = $1', [userId, JSON.stringify(hashedCodes)]);
+};
+
+export const disableMfa = async (userId: number) => {
+  await pool.query(
+    'UPDATE users SET mfa_enabled = false, mfa_secret = NULL, mfa_backup_codes = NULL WHERE id = $1',
+    [userId]
+  );
+};
+
+export const removeBackupCode = async (userId: number, remainingCodes: string[]) => {
+  await pool.query('UPDATE users SET mfa_backup_codes = $2 WHERE id = $1', [userId, JSON.stringify(remainingCodes)]);
+};
+
